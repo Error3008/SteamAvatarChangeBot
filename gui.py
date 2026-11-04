@@ -1,6 +1,10 @@
 import asyncio
+import atexit
 import json
+import os
 import random
+import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -16,9 +20,65 @@ BASE_DIR = Path(__file__).resolve().parent
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
+class SingleInstance:
+    def __init__(self, on_show_callback):
+        self.on_show_callback = on_show_callback
+        self.sock = None
+        base_port = 49280
+        uid_offset = (os.getuid() % 1000) if hasattr(os, "getuid") else 1
+        self.port = base_port + uid_offset
+
+    def check_and_start(self) -> bool:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        try:
+            s.connect(("127.0.0.1", self.port))
+            s.sendall(b"show\n")
+            s.close()
+            return False
+        except (ConnectionRefusedError, OSError):
+            s.close()
+
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.sock.bind(("127.0.0.1", self.port))
+            self.sock.listen(1)
+            threading.Thread(target=self._listener_loop, daemon=True).start()
+            return True
+        except OSError:
+            return False
+
+    def _listener_loop(self):
+        while self.sock:
+            try:
+                conn, _ = self.sock.accept()
+            except Exception:
+                break
+            try:
+                data = conn.recv(16).strip()
+                if data == b"show" and self.on_show_callback:
+                    self.on_show_callback()
+            except Exception:
+                pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def cleanup(self):
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
+
 class SteamAvatarApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, single_instance_mgr=None):
         super().__init__()
+        self.single_instance_mgr = single_instance_mgr
         self.title("Steam Avatar Manager")
         self.geometry("720x840")
         self.minsize(600, 700)
@@ -27,6 +87,7 @@ class SteamAvatarApp(ctk.CTk):
         self.checkbox_vars = {}
         self.image_references = []
         self.config_data = self.load_config()
+        self.min_to_tray_var = ctk.BooleanVar(value=self.config_data.get("minimize_to_tray", False))
 
         self.is_rotating = False
         self.rotation_timer_id = None
@@ -34,6 +95,13 @@ class SteamAvatarApp(ctk.CTk):
         self.shuffle_deck = []
         self.tray_proc = None
         self.pystray_icon = None
+
+        atexit.register(self._cleanup_on_exit)
+        try:
+            signal.signal(signal.SIGINT, lambda *_: self.quit_app())
+            signal.signal(signal.SIGTERM, lambda *_: self.quit_app())
+        except Exception:
+            pass
 
         self.create_layout()
         self.tabview.set("Login")
@@ -43,12 +111,20 @@ class SteamAvatarApp(ctk.CTk):
         self.check_session()
 
     def load_config(self) -> dict:
+        default_cfg = {
+            "interval_minutes": 15,
+            "mode": "Sequential",
+            "selected_hashes": [],
+            "minimize_to_tray": False
+        }
         if CONFIG_FILE.exists():
             try:
-                return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+                data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+                default_cfg.update(data)
+                return default_cfg
             except Exception:
                 pass
-        return {"interval_minutes": 15, "mode": "Sequential", "selected_hashes": []}
+        return default_cfg
 
     def get_tray_image(self, sha: str = "") -> Image.Image:
         if sha:
@@ -77,6 +153,16 @@ class SteamAvatarApp(ctk.CTk):
                 import PySide6
                 tray_script = BASE_DIR / "core" / "tray_kde.py"
                 if tray_script.exists():
+                    try:
+                        # Clean up any leftover orphaned tray processes from previous runs
+                        subprocess.run(
+                            ["pkill", "-u", str(os.getuid()), "-f", "core/tray_kde.py"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                    except Exception:
+                        pass
+
                     initial_icon = ""
                     if AVATARS_DIR.exists():
                         for p in AVATARS_DIR.glob("*.jpg"):
@@ -150,7 +236,7 @@ class SteamAvatarApp(ctk.CTk):
                 pass
 
     def on_close_window(self):
-        if (self.tray_proc and self.tray_proc.poll() is None) or self.pystray_icon:
+        if self.is_authenticated and self.min_to_tray_var.get() and ((self.tray_proc and self.tray_proc.poll() is None) or self.pystray_icon):
             self.withdraw()
         else:
             self.quit_app()
@@ -166,8 +252,11 @@ class SteamAvatarApp(ctk.CTk):
         self.deiconify()
         self.state("normal")
         self.lift()
-        self.attributes("-topmost", True)
-        self.after_idle(self.attributes, "-topmost", False)
+        try:
+            self.attributes("-topmost", True)
+            self.after_idle(lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
         self.focus_force()
 
     def toggle_rotation_from_tray(self, icon=None, item=None):
@@ -177,19 +266,42 @@ class SteamAvatarApp(ctk.CTk):
         self.after(0, self._do_quit)
 
     def _do_quit(self):
-        self.stop_rotation()
+        self._cleanup_on_exit()
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    def _cleanup_on_exit(self):
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
+
+        try:
+            self.stop_rotation()
+        except Exception:
+            pass
         if self.tray_proc and self.tray_proc.poll() is None:
-            self.send_tray_cmd({"action": "quit"})
             try:
+                self.send_tray_cmd({"action": "quit"})
                 self.tray_proc.terminate()
+                self.tray_proc.wait(timeout=1.0)
             except Exception:
-                pass
+                try:
+                    self.tray_proc.kill()
+                except Exception:
+                    pass
+            self.tray_proc = None
         if self.pystray_icon:
             try:
                 self.pystray_icon.stop()
             except Exception:
                 pass
-        self.destroy()
+            self.pystray_icon = None
+        if hasattr(self, "single_instance_mgr") and self.single_instance_mgr:
+            self.single_instance_mgr.cleanup()
+            self.single_instance_mgr = None
 
     def set_authenticated(self, is_auth: bool, account_name: str = ""):
         self.is_authenticated = is_auth
@@ -336,6 +448,16 @@ class SteamAvatarApp(ctk.CTk):
 
         ctk.CTkButton(
             top_header,
+            text="Exit App",
+            fg_color="#d9534f",
+            hover_color="#c9302c",
+            width=90,
+            height=28,
+            command=self.quit_app
+        ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            top_header,
             text="Minimize to Tray",
             width=120,
             height=28,
@@ -369,7 +491,15 @@ class SteamAvatarApp(ctk.CTk):
             width=120
         )
         self.mode_menu.set(default_mode)
-        self.mode_menu.pack(side="left", padx=(8, 0))
+        self.mode_menu.pack(side="left", padx=(8, 16))
+
+        self.min_to_tray_cb = ctk.CTkCheckBox(
+            settings_row,
+            text="Minimize to tray on [X]",
+            variable=self.min_to_tray_var,
+            font=ctk.CTkFont(size=13)
+        )
+        self.min_to_tray_cb.pack(side="left", padx=(8, 0))
 
         rotation_row = ctk.CTkFrame(header, fg_color="transparent")
         rotation_row.pack(fill="x", padx=12, pady=4)
@@ -717,7 +847,8 @@ class SteamAvatarApp(ctk.CTk):
         data = {
             "interval_minutes": interval,
             "mode": mode,
-            "selected_hashes": selected
+            "selected_hashes": selected,
+            "minimize_to_tray": self.min_to_tray_var.get()
         }
 
         try:
@@ -772,5 +903,16 @@ class SteamAvatarApp(ctk.CTk):
             self.login_status.configure(text=msg, text_color="#ff5555")
 
 if __name__ == "__main__":
-    app = SteamAvatarApp()
+    app = None
+
+    def on_show():
+        if app:
+            app.after(0, app._restore_window)
+
+    mgr = SingleInstance(on_show)
+    if not mgr.check_and_start():
+        print("[INFO] Steam Avatar Manager is already running. Showing active window.")
+        sys.exit(0)
+
+    app = SteamAvatarApp(single_instance_mgr=mgr)
     app.mainloop()
