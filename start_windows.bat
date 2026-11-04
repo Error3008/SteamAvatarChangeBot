@@ -73,8 +73,21 @@ if not exist "venv\Scripts\python.exe" (
 )
 
 echo [START] Launching Steam Avatar Manager...
+if "%1"=="--console" goto run_console
+if "%1"=="-c" goto run_console
+if "%1"=="--debug" goto run_console
+
 if exist "venv\Scripts\pythonw.exe" (
     start "" "venv\Scripts\pythonw.exe" gui.py
-) else (
-    start "" "venv\Scripts\python.exe" gui.py
+    exit /b 0
+)
+
+:run_console
+venv\Scripts\python.exe gui.py %*
+if errorlevel 1 (
+    echo.
+    echo ============================================================
+    echo  [ERROR] Application exited with an error code.
+    echo ============================================================
+    pause
 )

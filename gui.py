@@ -580,8 +580,9 @@ class SteamAvatarApp(ctk.CTk):
         if not avatar_files:
             ctk.CTkLabel(
                 self.scroll_frame,
-                text="No avatars found in 'avatars/' folder.\nClick 'Fetch from Steam' to download them.",
-                font=ctk.CTkFont(size=14)
+                text="No avatars found yet!\n\n1. Upload your avatars on Steam (Profile -> Edit Profile -> Avatar)\n2. Click 'Fetch from Steam' above to load them here.",
+                font=ctk.CTkFont(size=14),
+                justify="center"
             ).pack(pady=40)
             return
 
@@ -812,6 +813,10 @@ class SteamAvatarApp(ctk.CTk):
                 text_color="#55ff55"
             )
         else:
+            self.avatar_status.configure(
+                text="No avatar history found on Steam! Please upload avatars to your Steam profile first.",
+                text_color="#ffaa00"
+            )
             self.check_session()
 
     def _on_fetch_fail(self, err: str):
