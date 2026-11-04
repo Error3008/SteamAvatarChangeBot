@@ -13,7 +13,7 @@ import customtkinter as ctk
 from PIL import Image, ImageDraw
 
 from core.auth import login, validate_session
-from core.avatar import apply_avatar, fetch_recent_avatars, AVATARS_DIR, CONFIG_FILE
+from core.avatar import apply_avatar, fetch_recent_avatars, AVATARS_DIR, CONFIG_FILE, load_config, save_config
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -91,7 +91,7 @@ class SteamAvatarApp(ctk.CTk):
 
         self.is_rotating = False
         self.rotation_timer_id = None
-        self.sequential_idx = 0
+        self.sequential_idx = int(self.config_data.get("current_index", 0))
         self.shuffle_deck = []
         self.tray_proc = None
         self.pystray_icon = None
@@ -111,20 +111,7 @@ class SteamAvatarApp(ctk.CTk):
         self.check_session()
 
     def load_config(self) -> dict:
-        default_cfg = {
-            "interval_minutes": 15,
-            "mode": "Sequential",
-            "selected_hashes": [],
-            "minimize_to_tray": False
-        }
-        if CONFIG_FILE.exists():
-            try:
-                data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-                default_cfg.update(data)
-                return default_cfg
-            except Exception:
-                pass
-        return default_cfg
+        return load_config()
 
     def get_tray_image(self, sha: str = "") -> Image.Image:
         if sha:
@@ -149,25 +136,23 @@ class SteamAvatarApp(ctk.CTk):
 
     def setup_tray(self):
         if sys.platform.startswith("linux"):
-            try:
-                import PySide6
-                tray_script = BASE_DIR / "core" / "tray_kde.py"
-                if tray_script.exists():
-                    try:
-                        # Clean up any leftover orphaned tray processes from previous runs
-                        subprocess.run(
-                            ["pkill", "-u", str(os.getuid()), "-f", "core/tray_kde.py"],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL
-                        )
-                    except Exception:
-                        pass
+            tray_script = BASE_DIR / "core" / "tray_kde.py"
+            if tray_script.exists():
+                try:
+                    subprocess.run(
+                        ["pkill", "-u", str(os.getuid()), "-f", "core/tray_kde.py"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                except Exception:
+                    pass
 
-                    initial_icon = ""
-                    if AVATARS_DIR.exists():
-                        for p in AVATARS_DIR.glob("*.jpg"):
-                            initial_icon = str(p)
-                            break
+                initial_icon = ""
+                if AVATARS_DIR.exists():
+                    for p in AVATARS_DIR.glob("*.jpg"):
+                        initial_icon = str(p)
+                        break
+                try:
                     self.tray_proc = subprocess.Popen(
                         [sys.executable, str(tray_script), initial_icon],
                         stdin=subprocess.PIPE,
@@ -177,26 +162,26 @@ class SteamAvatarApp(ctk.CTk):
                     )
                     threading.Thread(target=self._listen_kde_tray, daemon=True).start()
                     return
+                except Exception:
+                    pass
+        else:
+            try:
+                import pystray
+                menu = pystray.Menu(
+                    pystray.MenuItem("Show Window", self.show_from_tray, default=True),
+                    pystray.MenuItem("Toggle Rotation", self.toggle_rotation_from_tray),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("Quit", self.quit_app)
+                )
+                self.pystray_icon = pystray.Icon(
+                    "SteamAvatarManager",
+                    icon=self.get_tray_image(),
+                    title="Steam Avatar Manager",
+                    menu=menu
+                )
+                threading.Thread(target=self.pystray_icon.run, daemon=True).start()
             except Exception:
                 pass
-
-        try:
-            import pystray
-            menu = pystray.Menu(
-                pystray.MenuItem("Show Window", self.show_from_tray, default=True),
-                pystray.MenuItem("Toggle Rotation", self.toggle_rotation_from_tray),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Quit", self.quit_app)
-            )
-            self.pystray_icon = pystray.Icon(
-                "SteamAvatarManager",
-                icon=self.get_tray_image(),
-                title="Steam Avatar Manager",
-                menu=menu
-            )
-            threading.Thread(target=self.pystray_icon.run, daemon=True).start()
-        except Exception:
-            pass
 
     def _listen_kde_tray(self):
         if not self.tray_proc or not self.tray_proc.stdout:
@@ -234,6 +219,11 @@ class SteamAvatarApp(ctk.CTk):
                 self.pystray_icon.icon = self.get_tray_image(sha)
             except Exception:
                 pass
+
+    def on_min_to_tray_toggle(self):
+        val = bool(self.min_to_tray_var.get())
+        self.config_data["minimize_to_tray"] = val
+        save_config(self.config_data)
 
     def on_close_window(self):
         if self.is_authenticated and self.min_to_tray_var.get() and ((self.tray_proc and self.tray_proc.poll() is None) or self.pystray_icon):
@@ -324,15 +314,25 @@ class SteamAvatarApp(ctk.CTk):
             )
             self.tabview.set("Login")
 
-    def check_session(self):
+    def run_async(self, coro, on_done=None, on_error=None):
         def task():
             try:
-                valid, info = asyncio.run(validate_session())
-                self.after(0, lambda: self._on_session_checked(valid, info))
+                res = asyncio.run(coro)
+                if on_done:
+                    self.after(0, lambda: on_done(res))
             except Exception as e:
-                self.after(0, lambda: self._on_session_checked(False, str(e)))
-
+                if on_error:
+                    self.after(0, lambda: on_error(e))
+                elif on_done:
+                    self.after(0, lambda: on_done((False, str(e))))
         threading.Thread(target=task, daemon=True).start()
+
+    def check_session(self):
+        self.run_async(
+            validate_session(),
+            on_done=lambda res: self._on_session_checked(res[0], res[1]),
+            on_error=lambda err: self._on_session_checked(False, str(err))
+        )
 
     def _on_session_checked(self, is_valid: bool, info: str):
         if is_valid:
@@ -497,6 +497,7 @@ class SteamAvatarApp(ctk.CTk):
             settings_row,
             text="Minimize to tray on [X]",
             variable=self.min_to_tray_var,
+            command=self.on_min_to_tray_toggle,
             font=ctk.CTkFont(size=13)
         )
         self.min_to_tray_cb.pack(side="left", padx=(8, 0))
@@ -629,15 +630,11 @@ class SteamAvatarApp(ctk.CTk):
             text=f"Applying avatar {sha[:8]}...",
             text_color="#aaaaaa"
         )
-
-        def task():
-            try:
-                success, msg = asyncio.run(apply_avatar(sha))
-                self.after(0, lambda: self._on_apply_result(success, msg, sha))
-            except Exception as e:
-                self.after(0, lambda: self._on_apply_result(False, str(e), sha))
-
-        threading.Thread(target=task, daemon=True).start()
+        self.run_async(
+            apply_avatar(sha),
+            on_done=lambda res: self._on_apply_result(res[0], res[1], sha),
+            on_error=lambda err: self._on_apply_result(False, str(err), sha)
+        )
 
     def _on_apply_result(self, success: bool, msg: str, sha: str):
         if success:
@@ -696,7 +693,6 @@ class SteamAvatarApp(ctk.CTk):
             text_color="#55ff55"
         )
 
-        self.sequential_idx = 0
         self.shuffle_deck = []
         self._rotation_tick()
 
@@ -728,6 +724,8 @@ class SteamAvatarApp(ctk.CTk):
         else:
             sha = pool[self.sequential_idx % len(pool)]
             self.sequential_idx = (self.sequential_idx + 1) % len(pool)
+            self.config_data["current_index"] = self.sequential_idx
+            save_config(self.config_data)
             return sha
 
     def _rotation_tick(self):
@@ -744,15 +742,11 @@ class SteamAvatarApp(ctk.CTk):
             return
 
         sha = self._get_next_rotation_sha(selected)
-
-        def task():
-            try:
-                success, msg = asyncio.run(apply_avatar(sha))
-                self.after(0, lambda: self._on_rotation_step_done(success, msg, sha))
-            except Exception as e:
-                self.after(0, lambda: self._on_rotation_step_done(False, str(e), sha))
-
-        threading.Thread(target=task, daemon=True).start()
+        self.run_async(
+            apply_avatar(sha),
+            on_done=lambda res: self._on_rotation_step_done(res[0], res[1], sha),
+            on_error=lambda err: self._on_rotation_step_done(False, str(err), sha)
+        )
 
     def _on_rotation_step_done(self, success: bool, msg: str, sha: str):
         if not self.is_rotating:
@@ -794,15 +788,11 @@ class SteamAvatarApp(ctk.CTk):
     def start_fetch_avatars(self):
         self.fetch_btn.configure(state="disabled")
         self.avatar_status.configure(text="Fetching avatars from Steam...", text_color="#aaaaaa")
-
-        def task():
-            try:
-                hashes = asyncio.run(fetch_recent_avatars())
-                self.after(0, lambda: self._on_fetch_done(hashes))
-            except Exception as e:
-                self.after(0, lambda: self._on_fetch_fail(str(e)))
-
-        threading.Thread(target=task, daemon=True).start()
+        self.run_async(
+            fetch_recent_avatars(),
+            on_done=self._on_fetch_done,
+            on_error=lambda err: self._on_fetch_fail(str(err))
+        )
 
     def _on_fetch_done(self, hashes: list[str]):
         self.fetch_btn.configure(state="normal")
@@ -849,16 +839,16 @@ class SteamAvatarApp(ctk.CTk):
             return
 
         mode = self.mode_menu.get()
-        data = {
+        self.config_data.update({
             "interval_minutes": interval,
             "mode": mode,
             "selected_hashes": selected,
-            "minimize_to_tray": self.min_to_tray_var.get()
-        }
+            "minimize_to_tray": bool(self.min_to_tray_var.get()),
+            "current_index": self.sequential_idx,
+        })
 
         try:
-            CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            self.config_data = data
+            save_config(self.config_data)
             self.avatar_status.configure(
                 text=f"Saved {len(selected)} avatar(s), mode '{mode}', {interval}m interval to config.json",
                 text_color="#55ff55"
@@ -886,15 +876,11 @@ class SteamAvatarApp(ctk.CTk):
             text="Authenticating with Steam... (Confirm on phone if prompted)",
             text_color="#aaaaaa"
         )
-
-        def task():
-            try:
-                success, msg = asyncio.run(login(user, pwd, code))
-                self.after(0, lambda: self._on_login_done(success, msg, user))
-            except Exception as e:
-                self.after(0, lambda: self._on_login_done(False, str(e), user))
-
-        threading.Thread(target=task, daemon=True).start()
+        self.run_async(
+            login(user, pwd, code),
+            on_done=lambda res: self._on_login_done(res[0], res[1], user),
+            on_error=lambda err: self._on_login_done(False, str(err), user)
+        )
 
     def _on_login_done(self, success: bool, msg: str, user: str):
         self.login_btn.configure(state="normal")

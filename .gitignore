@@ -11,12 +11,10 @@ env/
 ENV/
 
 # Sensitive sessions & credentials
-.env
-.env.*
+session.json
 *.session.json
 
 # Local dynamic state & downloaded media
-avatar_state.txt
 avatars/
 config.json
 

@@ -23,13 +23,12 @@ Choose your favorite avatars from your Steam history, pick a rotation interval (
 - 🛡️ **Secure Local Storage**: Supports Steam Guard (email codes & Steam Mobile 2FA approval). Your session is stored locally on your machine—never sent to third parties.
 - 🗔 **System Tray Support**: Minimize to system tray so it stays out of your way while gaming. (Works on Windows and Linux, including KDE Plasma and GNOME).
 - 🔒 **Single Instance Protection**: Opening the launcher again simply brings the existing window to the front instead of spawning duplicate processes.
-- 🖥️ **CLI Scripts Included**: Headless scripts (`change_avatar.py`, `fetch_avatars.py`) for command-line power users or automation.
 
 ---
 
 ## 📋 Requirements
 
-- **Python 3.10** or higher (Recommended: Python 3.12 or 3.14).
+- **Python 3.10** or higher (Recommended: Python 3.12).
   - *Windows users*: Make sure to check **"Add python.exe to PATH"** when installing Python!
   - *Ubuntu / Debian Linux users*: Make sure `python3-tk` and `python3-venv` are installed (`sudo apt install python3-tk python3-venv`).
 
@@ -143,17 +142,14 @@ SteamAvatarChangeAuto/
 ├── start_windows.bat      # One-click launcher for Windows
 ├── start_linux.sh         # One-click launcher for Linux
 ├── gui.py                 # Main CustomTkinter desktop interface
-├── config.json            # Saved user settings (interval, mode, selected hashes)
-├── avatar_state.txt       # Tracks current rotation index
+├── config.json            # Saved user settings (interval, mode, selected hashes, current index, tray)
+├── session.json           # Active Steam session (cookies, tokens)
 ├── requirements.txt       # Python dependencies
 ├── core/
 │   ├── auth.py            # Steam login, session management & token refresh
 │   ├── avatar.py          # Avatar fetching, history and Steam API apply requests
 │   └── tray_kde.py        # Dedicated Qt tray handler for Linux/KDE
-├── avatars/               # Downloaded avatar images (.jpg)
-├── change_avatar.py       # Headless CLI: Switch to next avatar
-├── fetch_avatars.py       # Headless CLI: Download avatar history
-└── login.py               # Headless CLI: Login to Steam
+└── avatars/               # Downloaded avatar images (.jpg)
 ```
 
 ---
@@ -161,7 +157,7 @@ SteamAvatarChangeAuto/
 ## 🔒 Security & Privacy
 
 - **Direct Communication**: All requests are sent directly to official Steam Community endpoints (`steamcommunity.com` and `api.steampowered.com`).
-- **No Remote Telemetry**: Your credentials, cookies, and session tokens are strictly stored on your own local drive (`*.session.json` and `.env`).
+- **No Remote Telemetry**: Your credentials, cookies, and session tokens are strictly stored on your own local drive (`session.json`).
 - **Open Source**: The code is fully open-source Python, so you can inspect every line.
 
 ---

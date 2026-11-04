@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-RECOMMENDED_VERSION="3.14"
+RECOMMENDED_VERSION="3.12"
 
 PYTHON_BIN=""
 if command -v python3 >/dev/null 2>&1; then
@@ -37,11 +37,7 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }
     exit 1
 fi
 
-if [ "$PY_VER" != "$RECOMMENDED_VERSION" ]; then
-    echo "[INFO] Detected Python $PY_VER. Recommended version is Python $RECOMMENDED_VERSION."
-else
-    echo "[INFO] Detected Python $PY_VER (Recommended version)."
-fi
+echo "[INFO] Detected Python $PY_VER."
 
 if [ ! -f "venv/bin/python" ]; then
     echo "[SETUP] Creating virtual environment..."
@@ -49,7 +45,7 @@ if [ ! -f "venv/bin/python" ]; then
     echo "[SETUP] Installing dependencies..."
     ./venv/bin/pip install -r requirements.txt
 else
-    if ! ./venv/bin/python -c "import customtkinter, pystray, PIL" >/dev/null 2>&1; then
+    if ! ./venv/bin/python -c "import customtkinter, PySide6, PIL" >/dev/null 2>&1; then
         echo "[SETUP] Installing missing dependencies..."
         ./venv/bin/pip install -r requirements.txt
     fi

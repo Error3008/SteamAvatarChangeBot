@@ -3,14 +3,14 @@ chcp 65001 >nul
 title Steam Avatar Manager
 cd /d "%~dp0"
 
-set "RECOMMENDED_VERSION=3.14"
+set "RECOMMENDED_VERSION=3.12"
 
 set "PYTHON_CMD="
 where py >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    py -3.14 -V >nul 2>nul
+    py -3.12 -V >nul 2>nul
     if %ERRORLEVEL% equ 0 (
-        set "PYTHON_CMD=py -3.14"
+        set "PYTHON_CMD=py -3.12"
     ) else (
         set "PYTHON_CMD=py"
     )
@@ -41,12 +41,7 @@ for /f "tokens=*" %%v in ('%PYTHON_CMD% -c "import sys; print(f'{sys.version_inf
 if "%PY_VER%"=="" (
     echo [WARNING] Could not determine Python version.
 ) else (
-    if "%PY_VER%"=="%RECOMMENDED_VERSION%" (
-        echo [INFO] Detected Python %PY_VER% ^(Recommended version^).
-    ) else (
-        echo [INFO] Detected Python %PY_VER%. Recommended version is %RECOMMENDED_VERSION%.
-        echo [INFO] ^(Download from: https://www.python.org/downloads/^)
-    )
+    echo [INFO] Detected Python %PY_VER%.
 )
 
 if not exist "venv\Scripts\python.exe" (

@@ -1,61 +1,49 @@
-import asyncio
 import json
-import os
 from pathlib import Path
 from aiohttp import ClientSession, FormData
-from aiosteampy.session import SteamSession
-
-from .auth import get_session_file
+from .auth import get_authenticated_session
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = BASE_DIR / "config.json"
 AVATARS_DIR = BASE_DIR / "avatars"
-STATE_FILE = BASE_DIR / "avatar_state.txt"
 
-DEFAULT_HASHES = [
-    "fbfe9b170b5ba5928f0a9ba8f67f6e7c8ae4b2bd",
-]
+DEFAULT_CONFIG = {
+    "interval_minutes": 15,
+    "mode": "Sequential",
+    "selected_hashes": [],
+    "minimize_to_tray": False,
+    "current_index": 0,
+}
 
 HEADERS = {
     "Referer": "https://steamcommunity.com/my/edit/avatar",
     "Origin": "https://steamcommunity.com",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:158.0) Gecko/20100101 Firefox/158.0",
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
 }
 
-def get_avatar_hashes() -> list[str]:
+def load_config() -> dict:
+    cfg = DEFAULT_CONFIG.copy()
     if CONFIG_FILE.exists():
         try:
-            cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            if cfg.get("selected_hashes"):
-                return cfg["selected_hashes"]
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                cfg.update(data)
         except Exception:
             pass
-    return DEFAULT_HASHES
+    return cfg
 
-def get_next_hash() -> str:
-    hashes = get_avatar_hashes()
-    if not hashes:
-        return ""
-    idx = int(STATE_FILE.read_text().strip()) if STATE_FILE.exists() else 0
-    current_sha = hashes[idx % len(hashes)]
-    STATE_FILE.write_text(str((idx + 1) % len(hashes)))
-    return current_sha
+def save_config(cfg: dict) -> None:
+    try:
+        CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"Error saving config: {e}")
 
 async def apply_avatar(sha: str) -> tuple[bool, str]:
-    session_file = get_session_file()
-    if not session_file or not session_file.exists():
-        return False, "Session file not found"
-
-    with open(session_file, "r", encoding="utf-8") as f:
-        session = SteamSession.deserialize(json.load(f))
+    session, err = await get_authenticated_session()
+    if not session:
+        return False, err
 
     try:
-        if session.access_token.expired:
-            await session.refresh()
-            await session.obtain_cookies()
-            with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(session.serialize(), f, indent=2)
-
         form = FormData()
         form.add_field("sessionid", session.session_id)
         form.add_field("json", "1")
@@ -77,23 +65,14 @@ async def apply_avatar(sha: str) -> tuple[bool, str]:
         await session.transport.close()
 
 async def fetch_recent_avatars(output_dir: Path = AVATARS_DIR) -> list[str]:
-    session_file = get_session_file()
-    if not session_file or not session_file.exists():
-        print("Error: Session file not found!")
+    session, err = await get_authenticated_session()
+    if not session:
+        print(f"Error: {err}")
         return []
-
-    with open(session_file, "r", encoding="utf-8") as f:
-        session = SteamSession.deserialize(json.load(f))
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        if session.access_token.expired:
-            await session.refresh()
-            await session.obtain_cookies()
-            with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(session.serialize(), f, indent=2)
-
         token = session.access_token.raw
         url = f"https://api.steampowered.com/ICommunityService/GetAvatarHistory/v1/?access_token={token}"
 

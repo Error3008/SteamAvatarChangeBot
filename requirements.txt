@@ -1,6 +1,6 @@
 aiosteampy>=1.0.0b16
 aiohttp>=3.14.0
-python-dotenv>=1.0.0
 customtkinter>=6.0.0
 Pillow>=13.0.0
-pystray>=0.19.5
+pystray>=0.19.5; sys_platform == 'win32'
+PySide6>=6.5.0; sys_platform == 'linux'
