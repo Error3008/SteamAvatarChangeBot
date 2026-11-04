@@ -1,0 +1,29 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Sensitive sessions & credentials
+.env
+.env.*
+*.session.json
+
+# Local dynamic state & downloaded media
+avatar_state.txt
+avatars/
+config.json
+
+# IDEs & OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

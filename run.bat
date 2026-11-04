@@ -1,0 +1,80 @@
+@echo off
+chcp 65001 >nul
+title Steam Avatar Manager
+cd /d "%~dp0"
+
+set "RECOMMENDED_VERSION=3.14"
+
+set "PYTHON_CMD="
+where py >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    py -3.14 -V >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        set "PYTHON_CMD=py -3.14"
+    ) else (
+        set "PYTHON_CMD=py"
+    )
+) else (
+    where python >nul 2>nul
+    if %ERRORLEVEL% equ 0 (
+        set "PYTHON_CMD=python"
+    )
+)
+
+if "%PYTHON_CMD%"=="" (
+    echo ============================================================
+    echo  [ERROR] Python is not installed or not added to PATH.
+    echo.
+    echo  Please download and install Python %RECOMMENDED_VERSION%:
+    echo  https://www.python.org/downloads/
+    echo.
+    echo  IMPORTANT: During installation, be sure to check the box:
+    echo  "Add python.exe to PATH"
+    echo ============================================================
+    echo.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=*" %%v in ('%PYTHON_CMD% -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2^>nul') do set "PY_VER=%%v"
+
+if "%PY_VER%"=="" (
+    echo [WARNING] Could not determine Python version.
+) else (
+    if "%PY_VER%"=="%RECOMMENDED_VERSION%" (
+        echo [INFO] Detected Python %PY_VER% (Recommended version).
+    ) else (
+        echo [INFO] Detected Python %PY_VER%. Recommended version is %RECOMMENDED_VERSION%.
+        echo [INFO] (Download from: https://www.python.org/downloads/)
+    )
+)
+
+if not exist "venv\Scripts\python.exe" (
+    echo [SETUP] Creating virtual environment (venv)...
+    %PYTHON_CMD% -m venv venv
+    if errorlevel 1 (
+        echo [ERROR] Failed to create virtual environment.
+        pause
+        exit /b 1
+    )
+    echo [SETUP] Installing dependencies from requirements.txt...
+    venv\Scripts\python.exe -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] Failed to install dependencies.
+        pause
+        exit /b 1
+    )
+) else (
+    venv\Scripts\python.exe -c "import customtkinter, pystray, PIL" >nul 2>nul
+    if errorlevel 1 (
+        echo [SETUP] Installing / updating missing dependencies...
+        venv\Scripts\python.exe -m pip install -r requirements.txt
+    )
+)
+
+echo [START] Launching Steam Avatar Manager...
+if exist "venv\Scripts\pythonw.exe" (
+    start "" "venv\Scripts\pythonw.exe" gui.py
+) else (
+    start "" "venv\Scripts\python.exe" gui.py
+)
