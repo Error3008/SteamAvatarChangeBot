@@ -42,15 +42,15 @@ if "%PY_VER%"=="" (
     echo [WARNING] Could not determine Python version.
 ) else (
     if "%PY_VER%"=="%RECOMMENDED_VERSION%" (
-        echo [INFO] Detected Python %PY_VER% (Recommended version).
+        echo [INFO] Detected Python %PY_VER% ^(Recommended version^).
     ) else (
         echo [INFO] Detected Python %PY_VER%. Recommended version is %RECOMMENDED_VERSION%.
-        echo [INFO] (Download from: https://www.python.org/downloads/)
+        echo [INFO] ^(Download from: https://www.python.org/downloads/^)
     )
 )
 
 if not exist "venv\Scripts\python.exe" (
-    echo [SETUP] Creating virtual environment (venv)...
+    echo [SETUP] Creating virtual environment ^(venv^)...
     %PYTHON_CMD% -m venv venv
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment.
